@@ -8,37 +8,38 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        goos: [linux]
-        goarch: [amd64, arm64]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Go environment
-        uses: actions/setup-go@v5
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          go-version: '1.22'
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install dependencies
-        run: go mod download
-
-      - name: Build
-        run: |
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build -o mwarchiver-${{ matrix.goos }}-${{ matrix.goarch }} .
-
-      - name: Archive the build
-        run: |
-          tar -czvf mwarchiver-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz mwarchiver-${{ matrix.goos }}-${{ matrix.goarch }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          name: mwarchiver-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: mwarchiver-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
