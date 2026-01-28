@@ -79,7 +79,7 @@ main() {
       release_tag="$(date -u +%Y.%m.%d)"
     fi
 
-    local db_path="${DB_PATH:-mwarchiver.db}"
+    local db_path="${MWARCHIVER_DB_PATH:-mwarchiver.db}"
     local zip_name="${RELEASE_ASSET_NAME:-mwarchiver-${release_tag}.zip}"
 
     if [[ ! -f "${db_path}" ]]; then

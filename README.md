@@ -3,9 +3,15 @@ mwarchiver
 
 A minimal MediaWiki archiver. This program is intended to export articles from a MediaWiki instance to a SQLite database.
 
+## Releases notice
+
+This project's GitHub Releases are weekly archives of [52Poké Wiki](https://wiki.52poke.com), licensed under [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/). They are database archives created with mwarchiver, **not binaries of mwarchiver**. Please review the [52Poké Wiki machine reading rules](https://wiki.52poke.com/wiki/%E7%A5%9E%E5%A5%87%E5%AE%9D%E8%B4%9D%E7%99%BE%E7%A7%91:%E6%9C%BA%E5%99%A8%E8%AF%BB%E5%8F%96%E5%AE%88%E5%88%99).
+
 ## Configuration
 
-This program can be configured with `$HOME/.mwarchiver.yaml` file:
+By default the program will load `$HOME/.mwarchiver.yaml` if the file exists. You can also specify a config file with `--config`.
+
+Example config:
 
 ```yaml
 api_url: https://en.wikipedia.org/w/api.php
@@ -109,4 +115,4 @@ spec:
 
 ## License
 
-[MIT](LICENSE)
+mwarchiver is licensed under the [MIT](LICENSE) license.
