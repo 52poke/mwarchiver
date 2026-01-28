@@ -87,7 +87,11 @@ main() {
       exit 1
     fi
 
-    zip -j "${zip_name}" "${db_path}" >/dev/null
+    if [[ "${RELEASE_ZIP_PASSWORD:-}" != "" ]]; then
+      zip -j -P "${RELEASE_ZIP_PASSWORD}" "${zip_name}" "${db_path}" >/dev/null
+    else
+      zip -j "${zip_name}" "${db_path}" >/dev/null
+    fi
 
     local release_json
     release_json="$(create_release "${release_tag}" "${repo}" "${token}")"
