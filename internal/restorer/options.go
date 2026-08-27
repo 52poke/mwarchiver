@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -43,6 +44,8 @@ type Options struct {
 	OAuthGrants        []string
 	ForceSettings      bool
 	SkipSearchIndex    bool
+	HostUID            string
+	HostGID            string
 }
 
 func (o *Options) Normalize() error {
@@ -133,6 +136,22 @@ func (o *Options) Normalize() error {
 			if _, err := os.Stat(path); err != nil {
 				return fmt.Errorf("%s is not a usable 52poke/mediawiki checkout: %w", o.MediaWikiDir, err)
 			}
+		}
+		if o.HostUID == "" || o.HostGID == "" {
+			currentUser, err := user.Current()
+			if err != nil {
+				return fmt.Errorf("resolve current user for checkout permissions: %w", err)
+			}
+			if o.HostUID == "" {
+				o.HostUID = currentUser.Uid
+			}
+			if o.HostGID == "" {
+				o.HostGID = currentUser.Gid
+			}
+		}
+		positiveID := regexp.MustCompile(`^[1-9][0-9]*$`)
+		if !positiveID.MatchString(o.HostUID) || !positiveID.MatchString(o.HostGID) {
+			return fmt.Errorf("checkout restore requires a non-root user with numeric UID and GID")
 		}
 	}
 	if o.Target == TargetNew {

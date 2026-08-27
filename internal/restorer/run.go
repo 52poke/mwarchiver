@@ -60,7 +60,10 @@ func (r *Runner) Run(ctx context.Context) error {
 		if r.Options.EventBusURL != "" {
 			services = append(services, "kafka")
 		}
-		if err := r.compose(ctx, append([]string{"up", "-d"}, services...)...); err != nil {
+		if err := r.compose(ctx, append([]string{"up", "-d", "--build"}, services...)...); err != nil {
+			return err
+		}
+		if err := r.updateCheckoutDependencies(ctx); err != nil {
 			return err
 		}
 	} else {
@@ -228,13 +231,17 @@ exec mariadb --batch --skip-column-names --user="$MARIADB_USER" "$MARIADB_DATABA
 }
 
 func (r *Runner) installMediaWiki(ctx context.Context) error {
-	return r.maintenance(
-		ctx,
+	return r.maintenance(ctx, r.mediaWikiInstallArgs()...)
+}
+
+func (r *Runner) mediaWikiInstallArgs() []string {
+	return []string{
+		"env", "MW_CONFIG_FILE=/tmp/mwarchiver-no-local-settings.php",
 		"php", "maintenance/run.php", "install",
 		"--dbtype=mysql",
 		"--dbserver=mariadb",
-		"--dbname="+r.Options.DBName,
-		"--dbuser="+r.Options.DBUser,
+		"--dbname=" + r.Options.DBName,
+		"--dbuser=" + r.Options.DBUser,
 		"--dbpassfile=/run/secrets/mariadb-password",
 		fmt.Sprintf("--server=http://localhost:%d", r.Options.Port),
 		"--scriptpath=",
@@ -243,7 +250,22 @@ func (r *Runner) installMediaWiki(ctx context.Context) error {
 		"--confpath=/tmp",
 		"神奇宝贝百科",
 		r.Options.AdminUser,
-	)
+	}
+}
+
+func (r *Runner) updateCheckoutDependencies(ctx context.Context) error {
+	fmt.Fprintln(r.Out, "Updating checkout Composer dependencies")
+	if err := r.maintenance(
+		ctx,
+		"composer", "update",
+		"--no-dev",
+		"--ignore-platform-req=ext-calendar",
+		"--ignore-platform-req=ext-intl",
+		"--with-all-dependencies",
+	); err != nil {
+		return fmt.Errorf("update checkout Composer dependencies: %w", err)
+	}
+	return nil
 }
 
 func (r *Runner) createAdmin(ctx context.Context) error {
@@ -303,21 +325,18 @@ func (r *Runner) createOAuthClient(ctx context.Context) error {
 }
 
 func (r *Runner) maintenance(ctx context.Context, args ...string) error {
-	if r.Options.MediaWikiDir != "" {
-		composeArgs := append([]string{"exec", "-T", "wiki-52poke"}, args...)
-		return r.compose(ctx, composeArgs...)
-	}
-	composeArgs := append([]string{"run", "--rm", "--no-deps", "maintenance"}, args...)
-	return r.compose(ctx, composeArgs...)
+	return r.compose(ctx, r.maintenanceComposeArgs(args...)...)
 }
 
 func (r *Runner) maintenanceCapture(ctx context.Context, output io.Writer, args ...string) error {
+	return r.composeCapture(ctx, output, r.maintenanceComposeArgs(args...)...)
+}
+
+func (r *Runner) maintenanceComposeArgs(args ...string) []string {
 	if r.Options.MediaWikiDir != "" {
-		composeArgs := append([]string{"exec", "-T", "wiki-52poke"}, args...)
-		return r.composeCapture(ctx, output, composeArgs...)
+		return append([]string{"exec", "-T", "--user", "www-data", "wiki-52poke"}, args...)
 	}
-	composeArgs := append([]string{"run", "--rm", "--no-deps", "maintenance"}, args...)
-	return r.composeCapture(ctx, output, composeArgs...)
+	return append([]string{"run", "--rm", "--no-deps", "--user", "www-data", "maintenance"}, args...)
 }
 
 func (r *Runner) compose(ctx context.Context, args ...string) error {

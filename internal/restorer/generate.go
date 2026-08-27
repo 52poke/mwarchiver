@@ -362,7 +362,13 @@ const composeTemplate = `services:
 {{ end }}
 {{ if .MediaWikiDir }}
   wiki-52poke:
+    build:
+      args:
+        USER_ID: {{ yaml .HostUID }}
+        GROUP_ID: {{ yaml .HostGID }}
     environment:
+      HOME: /home/www-data
+      COMPOSER_HOME: /home/www-data/.composer
       MW_RESTORE: "1"
     extra_hosts:
       - "host.docker.internal:host-gateway"

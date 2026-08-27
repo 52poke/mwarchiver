@@ -56,6 +56,8 @@ An administrator account is always created or updated.
 
 When a checkout is selected, the generated stack layers on its devcontainer Compose configuration. The devcontainer owns the wiki build and disposable Memcached service. `mwarchiver` owns MariaDB and optional Elasticsearch and Kafka because those services have persistent data.
 
+Before initializing or importing the database, `mwarchiver` updates the checkout's Composer dependencies as `www-data`. The checkout image maps that account to the invoking user's UID and GID so generated `vendor` files remain editable on the host.
+
 The workflow creates `LocalSettings.php` in the checkout and wires the selected services. When Elasticsearch is enabled, restored content is indexed automatically unless `--skip-search-index` is used. An existing `LocalSettings.php` is not replaced without confirmation or `--force-settings`; its original contents are backed up privately under the restore state directory before replacement.
 
 ### Using the published MediaWiki image

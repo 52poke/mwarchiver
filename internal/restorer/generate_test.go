@@ -48,6 +48,8 @@ func TestPrepareCheckoutWithIntegrations(t *testing.T) {
 		EventBusURL:      "http://host.docker.internal:5001",
 		OAuth:            true,
 		OAuthCallbackURL: "http://localhost:3000/callback",
+		HostUID:          "1234",
+		HostGID:          "5678",
 	}
 	if err := o.Normalize(); err != nil {
 		t.Fatal(err)
@@ -64,7 +66,11 @@ func TestPrepareCheckoutWithIntegrations(t *testing.T) {
 	} {
 		assertContains(t, settings, expected)
 	}
-	for _, expected := range []string{"  wiki-52poke:", "  kafka:"} {
+	for _, expected := range []string{
+		"  wiki-52poke:", "  kafka:",
+		`USER_ID: "1234"`, `GROUP_ID: "5678"`,
+		"HOME: /home/www-data", "COMPOSER_HOME: /home/www-data/.composer",
+	} {
 		assertContains(t, compose, expected)
 	}
 	assertContains(t, compose, "depends_on: !override")
@@ -220,6 +226,9 @@ func fakeCheckout(t *testing.T, root string) string {
   wiki-52poke:
     build:
       context: .
+      args:
+        USER_ID: "1000"
+        GROUP_ID: "1000"
     depends_on:
       - elasticsearch
       - kafka
