@@ -2,11 +2,13 @@ package restorer
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -25,6 +27,7 @@ type Options struct {
 	Image              string
 	ContainerCLI       string
 	ProjectName        string
+	BindAddress        string
 	Port               int
 	DBHost             string
 	DBPort             int
@@ -67,6 +70,14 @@ func (o *Options) Normalize() error {
 	if !regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`).MatchString(o.ProjectName) {
 		return fmt.Errorf("invalid Compose project name %q", o.ProjectName)
 	}
+	if o.BindAddress == "" {
+		o.BindAddress = "127.0.0.1"
+	}
+	ip := net.ParseIP(o.BindAddress)
+	if ip == nil {
+		return fmt.Errorf("bind address must be an IPv4 or IPv6 address")
+	}
+	o.BindAddress = ip.String()
 	if o.Port == 0 {
 		o.Port = 8227
 	}
@@ -104,7 +115,7 @@ func (o *Options) Normalize() error {
 		o.OAuthVersion = "1.0"
 	}
 	if o.OAuthCallbackURL == "" {
-		o.OAuthCallbackURL = fmt.Sprintf("http://localhost:%d/", o.Port)
+		o.OAuthCallbackURL = o.WikiURL() + "/"
 	}
 	if len(o.OAuthGrants) == 0 {
 		o.OAuthGrants = []string{"basic"}
@@ -186,6 +197,26 @@ func (o *Options) Normalize() error {
 		}
 	}
 	return nil
+}
+
+func (o Options) WikiURL() string {
+	return "http://" + net.JoinHostPort(o.publicHost(), strconv.Itoa(o.Port))
+}
+
+func (o Options) PortBinding(hostPort, containerPort int) string {
+	return net.JoinHostPort(o.BindAddress, strconv.Itoa(hostPort)) + ":" + strconv.Itoa(containerPort)
+}
+
+func (o Options) ExternalHostPort(port int) string {
+	return net.JoinHostPort(o.publicHost(), strconv.Itoa(port))
+}
+
+func (o Options) publicHost() string {
+	ip := net.ParseIP(o.BindAddress)
+	if ip == nil || ip.IsLoopback() || ip.IsUnspecified() {
+		return "localhost"
+	}
+	return ip.String()
 }
 
 func existingFile(path, label string) (string, error) {

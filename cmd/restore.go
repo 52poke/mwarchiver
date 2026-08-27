@@ -19,6 +19,7 @@ type restoreFlags struct {
 	stateDir           string
 	containerCLI       string
 	projectName        string
+	bindAddress        string
 	port               int
 	dbHost             string
 	dbPort             int
@@ -62,6 +63,7 @@ persistent service managed by this restore workflow.`,
 				Image:              flags.image,
 				ContainerCLI:       flags.containerCLI,
 				ProjectName:        flags.projectName,
+				BindAddress:        flags.bindAddress,
 				Port:               flags.port,
 				DBHost:             flags.dbHost,
 				DBPort:             flags.dbPort,
@@ -157,7 +159,8 @@ persistent service managed by this restore workflow.`,
 	f.StringVar(&flags.image, "image", "ghcr.io/52poke/mediawiki:latest", "MediaWiki image when no checkout is used")
 	f.StringVar(&flags.containerCLI, "container-cli", "docker", "container CLI with Compose support")
 	f.StringVar(&flags.projectName, "project-name", "mwarchiver-restore", "Compose project name")
-	f.IntVar(&flags.port, "port", 8227, "localhost HTTP port")
+	f.StringVar(&flags.bindAddress, "bind-address", "127.0.0.1", "host IP address on which to publish restore services")
+	f.IntVar(&flags.port, "port", 8227, "host HTTP port")
 	f.StringVar(&flags.dbHost, "db-host", "", "existing database host as seen from the container")
 	f.IntVar(&flags.dbPort, "db-port", 3306, "database port")
 	f.StringVar(&flags.dbName, "db-name", "52poke_wiki", "database name")
@@ -219,6 +222,12 @@ func promptRestoreOptions(cmd *cobra.Command, reader *bufio.Reader, options *res
 			"52poke/mediawiki checkout path (blank uses the published image)",
 			options.MediaWikiDir,
 		)
+		if err != nil {
+			return err
+		}
+	}
+	if !cmd.Flags().Changed("bind-address") {
+		options.BindAddress, err = promptString(cmd, reader, "Host IP address on which to expose the wiki", options.BindAddress)
 		if err != nil {
 			return err
 		}

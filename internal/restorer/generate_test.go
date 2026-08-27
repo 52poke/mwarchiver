@@ -50,6 +50,7 @@ func TestPrepareCheckoutWithIntegrations(t *testing.T) {
 		OAuthCallbackURL: "http://localhost:3000/callback",
 		HostUID:          "1234",
 		HostGID:          "5678",
+		BindAddress:      "192.0.2.25",
 	}
 	if err := o.Normalize(); err != nil {
 		t.Fatal(err)
@@ -70,6 +71,8 @@ func TestPrepareCheckoutWithIntegrations(t *testing.T) {
 		"  wiki-52poke:", "  kafka:",
 		`USER_ID: "1234"`, `GROUP_ID: "5678"`,
 		"HOME: /home/www-data", "COMPOSER_HOME: /home/www-data/.composer",
+		`"192.0.2.25:8227:80"`, `"192.0.2.25:9092:29092"`,
+		"EXTERNAL://192.0.2.25:9092",
 	} {
 		assertContains(t, compose, expected)
 	}
@@ -78,6 +81,32 @@ func TestPrepareCheckoutWithIntegrations(t *testing.T) {
 		t.Fatalf("unexpected devcontainer base: %s", layout.BaseComposePath)
 	}
 	assertNotContains(t, compose, "  maintenance:")
+	validateCompose(t, layout)
+	validatePHP(t, layout.SettingsPath)
+	assertContains(t, settings, "$wgServer = 'http://192.0.2.25:8227';")
+}
+
+func TestPrepareImageWithIPv6BindAddress(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dump := writeTestFile(t, filepath.Join(root, "dump.xml"), "dump", 0o600)
+	o := Options{
+		DumpPath:    dump,
+		StateDir:    filepath.Join(root, "state"),
+		Target:      TargetNew,
+		BindAddress: "2001:db8::52",
+	}
+	if err := o.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	layout, err := Prepare(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compose := readTestFile(t, layout.ComposePath)
+	settings := readTestFile(t, layout.SettingsPath)
+	assertContains(t, compose, `"[2001:db8::52]:8227:80"`)
+	assertContains(t, settings, "$wgServer = 'http://[2001:db8::52]:8227';")
 	validateCompose(t, layout)
 	validatePHP(t, layout.SettingsPath)
 }

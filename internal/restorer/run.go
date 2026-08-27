@@ -145,7 +145,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 	}
 
-	fmt.Fprintf(r.Out, "\nLocal wiki: http://localhost:%d\n", r.Options.Port)
+	fmt.Fprintf(r.Out, "\nLocal wiki: %s\n", r.Options.WikiURL())
 	fmt.Fprintf(r.Out, "Admin user: %s\n", r.Options.AdminUser)
 	fmt.Fprintf(r.Out, "Admin password: %s\n", r.layout.AdminPassword)
 	if r.Options.OAuth {
@@ -243,7 +243,7 @@ func (r *Runner) mediaWikiInstallArgs() []string {
 		"--dbname=" + r.Options.DBName,
 		"--dbuser=" + r.Options.DBUser,
 		"--dbpassfile=/run/secrets/mariadb-password",
-		fmt.Sprintf("--server=http://localhost:%d", r.Options.Port),
+		"--server=" + r.Options.WikiURL(),
 		"--scriptpath=",
 		"--lang=zh",
 		"--passfile=/run/secrets/mediawiki-admin-password",

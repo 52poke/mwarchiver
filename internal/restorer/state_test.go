@@ -95,6 +95,7 @@ func TestLifecycleUpStartsRecordedServices(t *testing.T) {
 		ProjectName:  "restore-test",
 		ComposePath:  filepath.Join(stateDir, "compose.yaml"),
 		Services:     []string{"mariadb", "mediawiki", "elasticsearch"},
+		BindAddress:  "192.0.2.25",
 		Port:         9123,
 	}
 	if err := writeState(filepath.Join(stateDir, "state.json"), state); err != nil {
@@ -108,7 +109,7 @@ func TestLifecycleUpStartsRecordedServices(t *testing.T) {
 	if !strings.Contains(args, "up -d mariadb mediawiki elasticsearch") {
 		t.Fatalf("up arguments = %q", args)
 	}
-	if !strings.Contains(args, "http://localhost:9123") {
+	if !strings.Contains(args, "http://192.0.2.25:9123") {
 		t.Fatalf("up output does not include wiki URL: %q", args)
 	}
 }

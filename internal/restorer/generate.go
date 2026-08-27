@@ -186,6 +186,9 @@ func renderCompose(o Options, settingsPath string) ([]byte, error) {
 	}{o, settingsPath, filepath.Dir(o.DumpPath)}
 	t, err := template.New("compose.yaml").Funcs(template.FuncMap{
 		"yaml": strconv.Quote,
+		"portBinding": func(options Options, hostPort, containerPort int) string {
+			return options.PortBinding(hostPort, containerPort)
+		},
 	}).Parse(composeTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("parse Compose template: %w", err)
@@ -217,7 +220,7 @@ $restoreSecret = static function ( string $name ): string {
 $wgSitename = '神奇宝贝百科';
 $wgMetaNamespace = '神奇宝贝百科';
 $wgLanguageCode = 'zh';
-$wgServer = {{ php (printf "http://localhost:%d" .Port) }};
+$wgServer = {{ php .WikiURL }};
 $wgCanonicalServer = $wgServer;
 $wgScriptPath = '';
 $wgArticlePath = '/wiki/$1';
@@ -373,7 +376,7 @@ const composeTemplate = `services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports: !override
-      - "127.0.0.1:{{ .Port }}:80"
+      - {{ yaml (portBinding .Options .Port 80) }}
     secrets:
       - mariadb-password
       - mediawiki-admin-password
@@ -397,7 +400,7 @@ const composeTemplate = `services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "127.0.0.1:{{ .Port }}:80"
+      - {{ yaml (portBinding .Options .Port 80) }}
     restart: unless-stopped
     secrets:
       - mariadb-password
@@ -448,7 +451,7 @@ const composeTemplate = `services:
   kafka:
     image: docker.io/bitnamilegacy/kafka:3.8.0
     ports:
-      - "127.0.0.1:9092:29092"
+      - {{ yaml (portBinding .Options 9092 29092) }}
     environment:
       KAFKA_HEAP_OPTS: -Xmx256m -Xms256m
       KAFKA_ENABLE_KRAFT: "yes"
@@ -459,7 +462,7 @@ const composeTemplate = `services:
       KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CFG_NODE_ID: "1"
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@127.0.0.1:9093
-      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9092
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://{{ .ExternalHostPort 9092 }}
       KAFKA_CFG_LOG_RETENTION_HOURS: "24"
       ALLOW_PLAINTEXT_LISTENER: "yes"
     healthcheck:

@@ -22,6 +22,7 @@ The XML export is produced by MediaWiki's `dumpBackup.php` maintenance command.
 - MediaWiki (`8`)
 - Template (`10`)
 - Help (`12`)
+- Category (`14`)
 
 ## Installation
 
@@ -72,6 +73,7 @@ Create a new database using a checkout, Elasticsearch, EventBus, and OAuth:
 mwarchiver restore /absolute/path/to/dump.xml.gz \
   --non-interactive \
   --target new \
+  --bind-address 192.0.2.25 \
   --mediawiki-dir /absolute/path/to/mediawiki \
   --elasticsearch \
   --eventbus-url http://host.docker.internal:5001 \

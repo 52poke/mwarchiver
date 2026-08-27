@@ -21,6 +21,7 @@ type State struct {
 	BaseComposePath string   `json:"base_compose_path,omitempty"`
 	ComposePath     string   `json:"compose_path"`
 	Services        []string `json:"services"`
+	BindAddress     string   `json:"bind_address,omitempty"`
 	Port            int      `json:"port"`
 }
 
@@ -50,6 +51,7 @@ func stateFor(o Options, layout Layout) State {
 		BaseComposePath: layout.BaseComposePath,
 		ComposePath:     layout.ComposePath,
 		Services:        services,
+		BindAddress:     o.BindAddress,
 		Port:            o.Port,
 	}
 }
@@ -88,6 +90,9 @@ func LoadState(stateDir string) (State, error) {
 	}
 	if state.ContainerCLI == "" || state.ProjectName == "" || state.ComposePath == "" || len(state.Services) == 0 {
 		return State{}, fmt.Errorf("restore state is incomplete: %s", path)
+	}
+	if state.BindAddress == "" {
+		state.BindAddress = "127.0.0.1"
 	}
 	return state, nil
 }
@@ -132,7 +137,8 @@ func RunLifecycle(ctx context.Context, stateDir string, action LifecycleAction, 
 		return fmt.Errorf("%s %s: %w", state.ContainerCLI, strings.Join(args, " "), err)
 	}
 	if action == LifecycleUp {
-		fmt.Fprintf(out, "Local wiki: http://localhost:%d\n", state.Port)
+		options := Options{BindAddress: state.BindAddress, Port: state.Port}
+		fmt.Fprintf(out, "Local wiki: %s\n", options.WikiURL())
 	}
 	return nil
 }
