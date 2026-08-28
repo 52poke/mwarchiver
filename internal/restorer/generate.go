@@ -245,6 +245,7 @@ $wgDevelopmentWarnings = true;
 $wgCookieSecure = false;
 $wgSecureLogin = false;
 $wgCacheDirectory = sys_get_temp_dir() . '/mediawiki-cache';
+$mwarchiverBulkMaintenance = getenv( 'MWARCHIVER_BULK_MAINTENANCE' ) === '1';
 
 $wgDefaultSkin = 'vector-2022';
 foreach ( [ 'Vector', 'MinervaNeue', 'MonoBook' ] as $skin ) {
@@ -270,14 +271,16 @@ $wgMemCachedServers = [ 'memcached:11211' ];
 $wgMainCacheType = CACHE_NONE;
 {{ end }}
 {{ if .Elasticsearch }}
-if ( !is_file( "$IP/extensions/Elastica/extension.json" ) || !is_file( "$IP/extensions/CirrusSearch/extension.json" ) ) {
-	throw new RuntimeException( 'Elasticsearch was requested but Elastica or CirrusSearch is unavailable' );
+if ( !$mwarchiverBulkMaintenance ) {
+	if ( !is_file( "$IP/extensions/Elastica/extension.json" ) || !is_file( "$IP/extensions/CirrusSearch/extension.json" ) ) {
+		throw new RuntimeException( 'Elasticsearch was requested but Elastica or CirrusSearch is unavailable' );
+	}
+	wfLoadExtension( 'Elastica' );
+	wfLoadExtension( 'CirrusSearch' );
+	$wgCirrusSearchServers = [ 'default' => 'elasticsearch' ];
+	$wgSearchType = 'CirrusSearch';
+	$wgCirrusSearchEnableIncomingLinkCounting = false;
 }
-wfLoadExtension( 'Elastica' );
-wfLoadExtension( 'CirrusSearch' );
-$wgCirrusSearchServers = [ 'default' => 'elasticsearch' ];
-$wgSearchType = 'CirrusSearch';
-$wgCirrusSearchEnableIncomingLinkCounting = false;
 {{ end }}
 {{ if .OAuth }}
 if ( !is_file( "$IP/extensions/OAuth/extension.json" ) ) {
@@ -290,29 +293,31 @@ $wgGroupPermissions['sysop']['mwoauthmanageconsumer'] = true;
 $wgGroupPermissions['sysop']['mwoauthviewprivate'] = true;
 {{ end }}
 {{ if .EventBusURL }}
-if ( !is_file( "$IP/extensions/EventBus/extension.json" ) ) {
-	throw new RuntimeException( 'EventBus was requested but the extension is unavailable' );
+if ( !$mwarchiverBulkMaintenance ) {
+	if ( !is_file( "$IP/extensions/EventBus/extension.json" ) ) {
+		throw new RuntimeException( 'EventBus was requested but the extension is unavailable' );
+	}
+	wfLoadExtension( 'EventBus' );
+	$wgEnableEventBus = 'TYPE_ALL';
+	$wgEventServices = [
+		'eventbus' => [ 'url' => {{ php .EventBusURL }}, 'timeout' => 10 ],
+	];
+	$wgEventServiceDefault = 'eventbus';
+	$wgEventRelayerConfig = [
+		'cdn-url-purges' => [
+			'class' => \MediaWiki\Extension\EventBus\Adapters\EventRelayer\CdnPurgeEventRelayer::class,
+			'stream' => 'cdn-url-purges',
+		],
+		'default' => [
+			'class' => \Wikimedia\EventRelayer\EventRelayerNull::class,
+		],
+	];
+	$wgJobRunRate = 0;
+	$wgJobTypeConf['default'] = [
+		'class' => '\\MediaWiki\\Extension\\EventBus\\Adapters\\JobQueue\\JobQueueEventBus',
+		'readOnlyReason' => false,
+	];
 }
-wfLoadExtension( 'EventBus' );
-$wgEnableEventBus = 'TYPE_ALL';
-$wgEventServices = [
-	'eventbus' => [ 'url' => {{ php .EventBusURL }}, 'timeout' => 10 ],
-];
-$wgEventServiceDefault = 'eventbus';
-$wgEventRelayerConfig = [
-	'cdn-url-purges' => [
-		'class' => \MediaWiki\Extension\EventBus\Adapters\EventRelayer\CdnPurgeEventRelayer::class,
-		'stream' => 'cdn-url-purges',
-	],
-	'default' => [
-		'class' => \Wikimedia\EventRelayer\EventRelayerNull::class,
-	],
-];
-$wgJobRunRate = 0;
-$wgJobTypeConf['default'] = [
-	'class' => '\\MediaWiki\\Extension\\EventBus\\Adapters\\JobQueue\\JobQueueEventBus',
-	'readOnlyReason' => false,
-];
 {{ end }}
 
 $wgExtraNamespaces[100] = '附录';

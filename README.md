@@ -53,13 +53,29 @@ The workflow lets you choose:
 
 An administrator account is always created or updated.
 
+### Import performance and progress
+
+By default, the XML import restores page and revision content without parsing every page immediately. This is substantially faster, but category membership, backlinks, template links, and other derived link tables are incomplete until they are rebuilt:
+
+```bash
+mwarchiver restore rebuild-links
+```
+
+If content import has completed but a later stage such as OAuth client creation fails, retry the restore with the same configuration and `--skip-import`; the existing page and revision data is left untouched.
+
 ### Using a MediaWiki checkout
 
 When a checkout is selected, the generated stack layers on its devcontainer Compose configuration. The devcontainer owns the wiki build and disposable Memcached service. `mwarchiver` owns MariaDB and optional Elasticsearch and Kafka because those services have persistent data.
 
 Before initializing or importing the database, `mwarchiver` updates the checkout's Composer dependencies as `www-data`. The checkout image maps that account to the invoking user's UID and GID so generated `vendor` files remain editable on the host.
 
-The workflow creates `LocalSettings.php` in the checkout and wires the selected services. When Elasticsearch is enabled, restored content is indexed automatically unless `--skip-search-index` is used. An existing `LocalSettings.php` is not replaced without confirmation or `--force-settings`; its original contents are backed up privately under the restore state directory before replacement.
+The workflow creates `LocalSettings.php` in the checkout and wires the selected services. An existing `LocalSettings.php` is not replaced without confirmation or `--force-settings`; its original contents are backed up privately under the restore state directory before replacement.
+
+Elasticsearch indexing is a separate, potentially long-running stage. After importing content and preferably rebuilding derived links, create or replace the CirrusSearch index with:
+
+```bash
+mwarchiver restore rebuild-search-index
+```
 
 ### Using the published MediaWiki image
 
@@ -112,11 +128,13 @@ Once a restore has been prepared, manage it without importing the dump again:
 mwarchiver restore status
 mwarchiver restore down  # removes containers and networks; preserves volumes
 mwarchiver restore up    # recreates the previously selected services
+mwarchiver restore rebuild-links  # populates deferred link/category tables
+mwarchiver restore rebuild-search-index  # creates/populates the CirrusSearch index
 ```
 
 Use the same `--state-dir` with these commands if the restore was prepared in a non-default location. MariaDB, Elasticsearch, and Kafka named volumes persist across `down` and `up`, and `up` restarts the exact services recorded in the saved state.
 
-The generated administrator password is stored in `.local/restore/mediawiki-admin-password`. OAuth credentials, when requested, are written once to `.local/restore/oauth-client.json`. Generated secrets are mounted with Compose secrets and are not embedded in `LocalSettings.php`.
+The generated administrator password is stored in `.local/restore/mediawiki-admin-password`. OAuth credentials, when requested, are written once to `.local/restore/oauth-client.json`. MediaWiki's OAuth maintenance utility requires callback-prefix mode, so the configured callback URL is treated as an allowed URL prefix. Generated secrets are mounted with Compose secrets and are not embedded in `LocalSettings.php`.
 
 ## License
 

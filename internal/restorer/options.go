@@ -20,35 +20,37 @@ const (
 )
 
 type Options struct {
-	DumpPath           string
-	StateDir           string
-	Target             Target
-	MediaWikiDir       string
-	Image              string
-	ContainerCLI       string
-	ProjectName        string
-	BindAddress        string
-	Port               int
-	DBHost             string
-	DBPort             int
-	DBName             string
-	DBUser             string
-	DBPasswordFile     string
-	AdminUser          string
-	AdminEmail         string
-	Elasticsearch      bool
-	ElasticsearchImage string
-	EventBusURL        string
-	OAuth              bool
-	OAuthName          string
-	OAuthDescription   string
-	OAuthVersion       string
-	OAuthCallbackURL   string
-	OAuthGrants        []string
-	ForceSettings      bool
-	SkipSearchIndex    bool
-	HostUID            string
-	HostGID            string
+	DumpPath                string
+	StateDir                string
+	Target                  Target
+	MediaWikiDir            string
+	Image                   string
+	ContainerCLI            string
+	ProjectName             string
+	BindAddress             string
+	Port                    int
+	DBHost                  string
+	DBPort                  int
+	DBName                  string
+	DBUser                  string
+	DBPasswordFile          string
+	AdminUser               string
+	AdminEmail              string
+	Elasticsearch           bool
+	ElasticsearchImage      string
+	EventBusURL             string
+	OAuth                   bool
+	OAuthName               string
+	OAuthDescription        string
+	OAuthVersion            string
+	OAuthCallbackURL        string
+	OAuthGrants             []string
+	ForceSettings           bool
+	SkipImport              bool
+	UpdateLinksDuringImport bool
+	ImportSkipTo            int
+	HostUID                 string
+	HostGID                 string
 }
 
 func (o *Options) Normalize() error {
@@ -83,6 +85,9 @@ func (o *Options) Normalize() error {
 	}
 	if o.Port < 1 || o.Port > 65535 {
 		return fmt.Errorf("HTTP port must be between 1 and 65535")
+	}
+	if o.ImportSkipTo < 0 {
+		return fmt.Errorf("import skip position must not be negative")
 	}
 	if o.DBPort == 0 {
 		o.DBPort = 3306

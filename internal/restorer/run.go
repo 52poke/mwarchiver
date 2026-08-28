@@ -1,6 +1,7 @@
 package restorer
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -113,21 +116,23 @@ func (r *Runner) Run(ctx context.Context) error {
 		return err
 	}
 
-	fmt.Fprintf(r.Out, "Importing %s\n", r.Options.DumpPath)
-	if err := r.maintenance(
-		ctx,
-		"php", "maintenance/run.php", "importDump",
-		"--no-local-users", "--username-prefix=52poke",
-		filepath.Join("/restore/input", filepath.Base(r.Options.DumpPath)),
-	); err != nil {
-		return fmt.Errorf("import XML dump: %w", err)
-	}
-	if err := r.maintenance(ctx, "php", "maintenance/run.php", "initSiteStats", "--update"); err != nil {
-		return fmt.Errorf("update site statistics: %w", err)
-	}
-	if r.Options.Elasticsearch && !r.Options.SkipSearchIndex {
-		if err := r.initializeSearch(ctx); err != nil {
-			return err
+	if r.Options.SkipImport {
+		fmt.Fprintln(r.Out, "Skipping the XML import; continuing with later restore stages")
+	} else {
+		totalPages, countErr := CountDumpPages(ctx, r.Options.DumpPath)
+		if countErr != nil {
+			fmt.Fprintf(r.Err, "Warning: could not count dump pages: %v\n", countErr)
+			fmt.Fprintf(r.Out, "Importing %s\n", r.Options.DumpPath)
+		} else if r.Options.ImportSkipTo > 1 {
+			fmt.Fprintf(r.Out, "Importing %s from page %d of %d\n", r.Options.DumpPath, r.Options.ImportSkipTo, totalPages)
+		} else {
+			fmt.Fprintf(r.Out, "Importing %s (%d pages)\n", r.Options.DumpPath, totalPages)
+		}
+		if err := r.runImportDump(ctx, totalPages); err != nil {
+			return fmt.Errorf("import XML dump: %w", err)
+		}
+		if err := r.maintenance(ctx, "php", "maintenance/run.php", "initSiteStats", "--update"); err != nil {
+			return fmt.Errorf("update site statistics: %w", err)
 		}
 	}
 	if r.Options.OAuth {
@@ -137,6 +142,13 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 	if err := r.maintenance(ctx, "php", "maintenance/run.php", "runJobs"); err != nil {
 		return fmt.Errorf("run MediaWiki jobs: %w", err)
+	}
+	if !r.Options.SkipImport && !r.Options.UpdateLinksDuringImport {
+		fmt.Fprintln(r.Out, "Link, category, and related derived tables were deferred for a faster content import.")
+		fmt.Fprintln(r.Out, "Run `mwarchiver restore rebuild-links` when you need those tables rebuilt.")
+	}
+	if r.Options.Elasticsearch {
+		fmt.Fprintln(r.Out, "The Elasticsearch index was deferred. Run `mwarchiver restore rebuild-search-index` when needed.")
 	}
 
 	if r.Options.MediaWikiDir == "" {
@@ -154,27 +166,88 @@ func (r *Runner) Run(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) initializeSearch(ctx context.Context) error {
-	fmt.Fprintln(r.Out, "Building the CirrusSearch index")
-	if err := r.maintenance(
-		ctx, "php", "maintenance/run.php",
-		"extensions/CirrusSearch/maintenance/UpdateSearchIndexConfig.php", "--startOver",
-	); err != nil {
-		return fmt.Errorf("create CirrusSearch index: %w", err)
+var importReportPattern = regexp.MustCompile(`^(\d+) \((?:[0-9.]+) pages/sec`)
+
+func (r *Runner) runImportDump(ctx context.Context, totalPages int64) error {
+	composeArgs := r.maintenanceComposeArgs(r.importDumpArgs()...)
+	command := r.composeCommand(ctx, composeArgs...)
+	command.Stdout = r.Out
+	stderr, err := command.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("read import progress: %w", err)
 	}
-	if err := r.maintenance(
-		ctx, "php", "maintenance/run.php",
-		"extensions/CirrusSearch/maintenance/ForceSearchIndex.php", "--skipLinks", "--indexOnSkip",
-	); err != nil {
-		return fmt.Errorf("build initial CirrusSearch index: %w", err)
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("%s compose %s: %w", r.Options.ContainerCLI, strings.Join(composeArgs, " "), err)
 	}
-	if err := r.maintenance(
-		ctx, "php", "maintenance/run.php",
-		"extensions/CirrusSearch/maintenance/ForceSearchIndex.php", "--skipParse",
-	); err != nil {
-		return fmt.Errorf("finish CirrusSearch index: %w", err)
+
+	started := time.Now()
+	startPage := int64(0)
+	if r.Options.ImportSkipTo > 1 {
+		startPage = int64(r.Options.ImportSkipTo - 1)
+	}
+	scanner := bufio.NewScanner(stderr)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if progress, ok := formatImportProgress(line, totalPages, startPage, time.Since(started)); ok {
+			fmt.Fprintln(r.Err, progress)
+		} else {
+			fmt.Fprintln(r.Err, line)
+		}
+	}
+	scanErr := scanner.Err()
+	waitErr := command.Wait()
+	if scanErr != nil {
+		return fmt.Errorf("read import progress: %w", scanErr)
+	}
+	if waitErr != nil {
+		return fmt.Errorf("%s compose %s: %w", r.Options.ContainerCLI, strings.Join(composeArgs, " "), waitErr)
 	}
 	return nil
+}
+
+func formatImportProgress(line string, totalPages, startPage int64, elapsed time.Duration) (string, bool) {
+	match := importReportPattern.FindStringSubmatch(line)
+	if len(match) != 2 || totalPages <= 0 {
+		return "", false
+	}
+	current, err := strconv.ParseInt(match[1], 10, 64)
+	if err != nil {
+		return "", false
+	}
+	processed := current - startPage
+	if processed <= 0 || elapsed <= 0 {
+		return "", false
+	}
+	rate := float64(processed) / elapsed.Seconds()
+	if rate <= 0 {
+		return "", false
+	}
+	remaining := totalPages - current
+	if remaining < 0 {
+		remaining = 0
+	}
+	eta := time.Duration(float64(remaining) / rate * float64(time.Second)).Round(time.Minute)
+	if eta < time.Minute {
+		eta = eta.Round(time.Second)
+	}
+	percent := float64(current) / float64(totalPages) * 100
+	return fmt.Sprintf("%s — %d/%d (%.1f%%), ETA %s", line, current, totalPages, percent, eta), true
+}
+
+func (r *Runner) importDumpArgs() []string {
+	args := []string{
+		"env", "MWARCHIVER_BULK_MAINTENANCE=1",
+		"php", "maintenance/run.php", "importDump",
+		"--no-local-users", "--username-prefix=52poke", "--report=1000",
+	}
+	if !r.Options.UpdateLinksDuringImport {
+		args = append(args, "--no-updates")
+	}
+	if r.Options.ImportSkipTo > 1 {
+		args = append(args, fmt.Sprintf("--skip-to=%d", r.Options.ImportSkipTo))
+	}
+	return append(args, filepath.Join("/restore/input", filepath.Base(r.Options.DumpPath)))
 }
 
 func (r *Runner) startNewDatabase(ctx context.Context) error {
@@ -293,18 +366,7 @@ func (r *Runner) createOAuthClient(ctx context.Context) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect OAuth client credentials: %w", err)
 	}
-	args := []string{
-		"php", "extensions/OAuth/maintenance/createOAuthConsumer.php",
-		"--user=" + r.Options.AdminUser,
-		"--name=" + r.Options.OAuthName,
-		"--description=" + r.Options.OAuthDescription,
-		"--version=" + r.Options.OAuthVersion,
-		"--callbackUrl=" + r.Options.OAuthCallbackURL,
-		"--approve", "--jsonOnSuccess",
-	}
-	for _, grant := range r.Options.OAuthGrants {
-		args = append(args, "--grants="+grant)
-	}
+	args := r.oauthClientArgs()
 	var output bytes.Buffer
 	if err := r.maintenanceCapture(ctx, &output, args...); err != nil {
 		return fmt.Errorf("create OAuth client: %w", err)
@@ -322,6 +384,24 @@ func (r *Runner) createOAuthClient(ctx context.Context) error {
 		return fmt.Errorf("write OAuth client credentials: %w", err)
 	}
 	return nil
+}
+
+func (r *Runner) oauthClientArgs() []string {
+	args := []string{
+		"php", "extensions/OAuth/maintenance/createOAuthConsumer.php",
+		"--user=" + r.Options.AdminUser,
+		"--name=" + r.Options.OAuthName,
+		"--description=" + r.Options.OAuthDescription,
+		"--version=" + r.Options.OAuthVersion,
+		"--callbackUrl=" + r.Options.OAuthCallbackURL,
+		// OAuth currently declares this switch as required. Supplying it also
+		// permits callbacks beneath the configured callback URL prefix.
+		"--callbackIsPrefix", "--approve", "--jsonOnSuccess",
+	}
+	for _, grant := range r.Options.OAuthGrants {
+		args = append(args, "--grants="+grant)
+	}
+	return args
 }
 
 func (r *Runner) maintenance(ctx context.Context, args ...string) error {

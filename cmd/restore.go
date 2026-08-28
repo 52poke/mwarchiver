@@ -13,34 +13,36 @@ import (
 )
 
 type restoreFlags struct {
-	target             string
-	mediaWikiDir       string
-	image              string
-	stateDir           string
-	containerCLI       string
-	projectName        string
-	bindAddress        string
-	port               int
-	dbHost             string
-	dbPort             int
-	dbName             string
-	dbUser             string
-	dbPasswordFile     string
-	adminUser          string
-	adminEmail         string
-	elasticsearch      bool
-	elasticsearchImage string
-	eventBusURL        string
-	oauth              bool
-	oauthName          string
-	oauthDescription   string
-	oauthVersion       string
-	oauthCallback      string
-	oauthGrants        []string
-	forceSettings      bool
-	nonInteractive     bool
-	prepareOnly        bool
-	skipSearchIndex    bool
+	target                  string
+	mediaWikiDir            string
+	image                   string
+	stateDir                string
+	containerCLI            string
+	projectName             string
+	bindAddress             string
+	port                    int
+	dbHost                  string
+	dbPort                  int
+	dbName                  string
+	dbUser                  string
+	dbPasswordFile          string
+	adminUser               string
+	adminEmail              string
+	elasticsearch           bool
+	elasticsearchImage      string
+	eventBusURL             string
+	oauth                   bool
+	oauthName               string
+	oauthDescription        string
+	oauthVersion            string
+	oauthCallback           string
+	oauthGrants             []string
+	forceSettings           bool
+	nonInteractive          bool
+	prepareOnly             bool
+	skipImport              bool
+	updateLinksDuringImport bool
+	importSkipTo            int
 }
 
 func newRestoreCommand() *cobra.Command {
@@ -56,33 +58,35 @@ persistent service managed by this restore workflow.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options := restorer.Options{
-				DumpPath:           args[0],
-				StateDir:           flags.stateDir,
-				Target:             restorer.Target(flags.target),
-				MediaWikiDir:       flags.mediaWikiDir,
-				Image:              flags.image,
-				ContainerCLI:       flags.containerCLI,
-				ProjectName:        flags.projectName,
-				BindAddress:        flags.bindAddress,
-				Port:               flags.port,
-				DBHost:             flags.dbHost,
-				DBPort:             flags.dbPort,
-				DBName:             flags.dbName,
-				DBUser:             flags.dbUser,
-				DBPasswordFile:     flags.dbPasswordFile,
-				AdminUser:          flags.adminUser,
-				AdminEmail:         flags.adminEmail,
-				Elasticsearch:      flags.elasticsearch,
-				ElasticsearchImage: flags.elasticsearchImage,
-				EventBusURL:        flags.eventBusURL,
-				OAuth:              flags.oauth,
-				OAuthName:          flags.oauthName,
-				OAuthDescription:   flags.oauthDescription,
-				OAuthVersion:       flags.oauthVersion,
-				OAuthCallbackURL:   flags.oauthCallback,
-				OAuthGrants:        flags.oauthGrants,
-				ForceSettings:      flags.forceSettings,
-				SkipSearchIndex:    flags.skipSearchIndex,
+				DumpPath:                args[0],
+				StateDir:                flags.stateDir,
+				Target:                  restorer.Target(flags.target),
+				MediaWikiDir:            flags.mediaWikiDir,
+				Image:                   flags.image,
+				ContainerCLI:            flags.containerCLI,
+				ProjectName:             flags.projectName,
+				BindAddress:             flags.bindAddress,
+				Port:                    flags.port,
+				DBHost:                  flags.dbHost,
+				DBPort:                  flags.dbPort,
+				DBName:                  flags.dbName,
+				DBUser:                  flags.dbUser,
+				DBPasswordFile:          flags.dbPasswordFile,
+				AdminUser:               flags.adminUser,
+				AdminEmail:              flags.adminEmail,
+				Elasticsearch:           flags.elasticsearch,
+				ElasticsearchImage:      flags.elasticsearchImage,
+				EventBusURL:             flags.eventBusURL,
+				OAuth:                   flags.oauth,
+				OAuthName:               flags.oauthName,
+				OAuthDescription:        flags.oauthDescription,
+				OAuthVersion:            flags.oauthVersion,
+				OAuthCallbackURL:        flags.oauthCallback,
+				OAuthGrants:             flags.oauthGrants,
+				ForceSettings:           flags.forceSettings,
+				SkipImport:              flags.skipImport,
+				UpdateLinksDuringImport: flags.updateLinksDuringImport,
+				ImportSkipTo:            flags.importSkipTo,
 			}
 
 			interactive := !flags.nonInteractive && stdinIsTerminal(cmd.InOrStdin())
@@ -180,13 +184,53 @@ persistent service managed by this restore workflow.`,
 	f.BoolVar(&flags.forceSettings, "force-settings", false, "replace an existing checkout LocalSettings.php")
 	f.BoolVar(&flags.nonInteractive, "non-interactive", false, "use flags and defaults without prompting")
 	f.BoolVar(&flags.prepareOnly, "prepare-only", false, "generate configuration and secrets without starting containers")
-	f.BoolVar(&flags.skipSearchIndex, "skip-search-index", false, "configure Elasticsearch without rebuilding its search index")
+	f.BoolVar(&flags.skipImport, "skip-import", false, "skip the XML import when retrying a later restore stage")
+	f.BoolVar(&flags.updateLinksDuringImport, "update-links-during-import", false, "parse every page and update link/category tables during import (much slower)")
+	f.IntVar(&flags.importSkipTo, "import-skip-to", 0, "resume at this 1-based dump page number (advanced)")
 	command.AddCommand(
 		newRestoreLifecycleCommand("up", restorer.LifecycleUp, "Start the prepared restore stack without importing again"),
 		newRestoreLifecycleCommand("down", restorer.LifecycleDown, "Remove restore containers and networks while preserving volumes"),
 		newRestoreLifecycleCommand("status", restorer.LifecycleStatus, "Show the prepared restore stack status"),
+		newRestoreRebuildLinksCommand(),
+		newRestoreRebuildSearchIndexCommand(),
 	)
 	return command
+}
+
+func newRestoreRebuildSearchIndexCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rebuild-search-index",
+		Short: "Create and populate the configured Elasticsearch search index",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			stateDir, err := cmd.Flags().GetString("state-dir")
+			if err != nil {
+				return err
+			}
+			return restorer.RebuildSearchIndex(
+				cmd.Context(), stateDir,
+				cmd.OutOrStdout(), cmd.ErrOrStderr(),
+			)
+		},
+	}
+}
+
+func newRestoreRebuildLinksCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rebuild-links",
+		Short: "Rebuild deferred link and category data for an imported snapshot",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			stateDir, err := cmd.Flags().GetString("state-dir")
+			if err != nil {
+				return err
+			}
+			return restorer.RebuildLinks(
+				cmd.Context(), stateDir,
+				cmd.OutOrStdout(), cmd.ErrOrStderr(),
+			)
+		},
+	}
 }
 
 func newRestoreLifecycleCommand(name string, action restorer.LifecycleAction, description string) *cobra.Command {
@@ -228,6 +272,16 @@ func promptRestoreOptions(cmd *cobra.Command, reader *bufio.Reader, options *res
 	}
 	if !cmd.Flags().Changed("bind-address") {
 		options.BindAddress, err = promptString(cmd, reader, "Host IP address on which to expose the wiki", options.BindAddress)
+		if err != nil {
+			return err
+		}
+	}
+	if !cmd.Flags().Changed("update-links-during-import") {
+		options.UpdateLinksDuringImport, err = promptBool(
+			cmd, reader,
+			"Update link/category tables during the XML import? (very slow; they can be rebuilt later)",
+			options.UpdateLinksDuringImport,
+		)
 		if err != nil {
 			return err
 		}
